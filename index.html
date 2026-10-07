@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Invoice Generator</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
       --primary: #2563eb;
@@ -128,6 +129,72 @@
     .btn-danger-outline:hover {
       background-color: var(--danger-light);
       border-color: var(--danger);
+    }
+
+    .btn-success {
+      background-color: #16a34a;
+      color: #ffffff;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-success:hover {
+      background-color: #15803d;
+    }
+
+    .btn:disabled {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+
+    .spin {
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Toast Notification */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast-item {
+      background-color: var(--slate-900);
+      color: #ffffff;
+      padding: 12px 18px;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      font-size: 0.875rem;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      pointer-events: auto;
+      transition: all 0.25s ease;
+      opacity: 0;
+      transform: translateY(12px);
+    }
+
+    .toast-item.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast-item.success {
+      background-color: #15803d;
+    }
+
+    .toast-item.error {
+      background-color: #b91c1c;
     }
 
     .btn-icon-only {
@@ -542,6 +609,14 @@
           </svg>
           Clear
         </button>
+        <button type="button" class="btn btn-success" id="btnSave" title="Save invoice to Supabase">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          Save Invoice
+        </button>
         <button type="button" class="btn btn-primary" id="btnPrint" title="Print invoice or save as PDF">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="6 9 6 2 18 2 18 9"></polyline>
@@ -739,6 +814,19 @@
   </div>
 
   <script>
+    // Supabase Configuration
+    const SUPABASE_URL = "https://agvxfzzamyehxmjhaojl.supabase.co";
+    const SUPABASE_KEY = "sb_publishable_PHVDoWE2XFFr78fxvb_-cA_4GxjAxX9";
+    let supabaseClient = null;
+
+    try {
+      if (window.supabase) {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+      }
+    } catch (err) {
+      console.warn("Supabase initialization error:", err);
+    }
+
     // App State
     let items = [
       { id: 1, name: "Wireless Mechanical Keyboard", qty: 1, price: 89.99 },
@@ -909,6 +997,111 @@
       renderTable();
     }
 
+    // Toast notification helper
+    function showToast(message, type = "info") {
+      const container = document.getElementById("toastContainer");
+      if (!container) return;
+      const toast = document.createElement("div");
+      toast.className = `toast-item ${type}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      requestAnimationFrame(() => {
+        toast.classList.add("show");
+      });
+
+      setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => toast.remove(), 250);
+      }, 3500);
+    }
+
+    // Save invoice to Supabase 'invoices' table
+    async function saveInvoiceToSupabase(silent = false) {
+      const businessName = document.getElementById("businessName").value.trim();
+      const customerName = document.getElementById("customerName").value.trim();
+
+      if (!businessName) {
+        if (!silent) {
+          showToast("Please enter a Business Name before saving.", "error");
+          document.getElementById("businessName").focus();
+        }
+        return false;
+      }
+
+      if (!customerName) {
+        if (!silent) {
+          showToast("Please enter a Customer Name before saving.", "error");
+          document.getElementById("customerName").focus();
+        }
+        return false;
+      }
+
+      const grandTotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+      const saveBtn = document.getElementById("btnSave");
+      const originalHtml = saveBtn ? saveBtn.innerHTML : "";
+
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = `
+          <svg class="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+          </svg>
+          Saving...
+        `;
+      }
+
+      const payload = {
+        business_name: businessName,
+        customer_name: customerName,
+        total: parseFloat(grandTotal.toFixed(2))
+      };
+
+      try {
+        let inserted = null;
+
+        if (window.supabase && supabaseClient) {
+          const { data, error } = await supabaseClient
+            .from("invoices")
+            .insert([payload])
+            .select();
+          if (error) throw error;
+          inserted = data;
+        } else {
+          // Direct PostgREST fallback
+          const response = await fetch(`${SUPABASE_URL}/rest/v1/invoices`, {
+            method: "POST",
+            headers: {
+              "apikey": SUPABASE_KEY,
+              "Authorization": `Bearer ${SUPABASE_KEY}`,
+              "Content-Type": "application/json",
+              "Prefer": "return=representation"
+            },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.message || "Failed to save invoice.");
+          }
+          inserted = await response.json();
+        }
+
+        const idText = inserted && inserted[0] && inserted[0].id ? ` (ID: #${inserted[0].id})` : "";
+        showToast(`✓ Invoice saved to Supabase!${idText}`, "success");
+        return true;
+      } catch (err) {
+        console.error("Supabase save error:", err);
+        showToast(`Error saving to Supabase: ${err.message || err}`, "error");
+        return false;
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.innerHTML = originalHtml;
+        }
+      }
+    }
+
     // Safe HTML helper
     function escapeHtml(text) {
       const div = document.createElement("div");
@@ -921,7 +1114,12 @@
       initDate();
       renderTable();
 
+      document.getElementById("btnSave").addEventListener("click", () => {
+        saveInvoiceToSupabase(false);
+      });
+
       document.getElementById("btnPrint").addEventListener("click", () => {
+        saveInvoiceToSupabase(true);
         window.print();
       });
 
@@ -929,5 +1127,8 @@
       document.getElementById("btnSample").addEventListener("click", loadSampleData);
     });
   </script>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container no-print"></div>
 </body>
 </html>
