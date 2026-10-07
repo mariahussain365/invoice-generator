@@ -715,6 +715,7 @@
               <option value="$" selected>USD ($)</option>
               <option value="€">EUR (€)</option>
               <option value="£">GBP (£)</option>
+              <option value="Rs.">PKR (Pakistani Rupee - Rs.)</option>
               <option value="₹">INR (₹)</option>
               <option value="C$">CAD (C$)</option>
               <option value="A$">AUD (A$)</option>
@@ -758,10 +759,12 @@
 
     // Format money helper
     function formatCurrency(amount) {
-      return currentCurrency + Number(amount).toLocaleString(undefined, {
+      const formatted = Number(amount).toLocaleString(undefined, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
       });
+      const space = (currentCurrency.length > 1 && !currentCurrency.endsWith(" ")) ? " " : "";
+      return currentCurrency + space + formatted;
     }
 
     // Render items table & recalculate total
